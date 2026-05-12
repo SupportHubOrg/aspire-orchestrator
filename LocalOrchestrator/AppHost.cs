@@ -41,14 +41,14 @@ var gatewayRepo = builder.AddRepository("gateway-repo", $"{orgUrl}/api-gateway.g
 
 //.NET Services (MSSQL)
 var ticketManagementService = builder.AddProjectFromRepository("ticket-management", ticketRepo, "src/TicketManagement/TicketManagement.csproj")
-    .WithReference(sqlServer.GetEndpoint("TicketDb"))
-    .WaitFor(sqlServer)
+    .WithReference(ticketDb)
+    .WaitFor(ticketDb)
     .WithReference(kafka)
     .WaitFor(kafka);
 
 var orgAccessService = builder.AddProjectFromRepository("organization-access", orgRepo, "src/OrganizationAccess/OrganizationAccess.csproj")
-    .WithReference(sqlServer.GetEndpoint("OrgDb"))
-    .WaitFor(sqlServer)
+    .WithReference(orgDb)
+    .WaitFor(orgDb)
     .WithReference(kafka)
     .WaitFor(kafka);
 
