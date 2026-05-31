@@ -88,6 +88,9 @@ var billingService = builder.AddNpmAppFromRepository("billing-service", billingR
     .WaitFor(kafka)
     .WithEnvironment("PAYU_API_KEY", builder.Configuration["PayUKey"]);
 
+//Get the Kafka endpoint to include in the Notification Service configuration
+var kafkaEndpoint = kafka.GetEndpoint("tcp");
+
 var notificationService = builder.AddNpmAppFromRepository("notification-service", notificationRepo, ".", scriptName: "dev")
     .WithReference(kafka)
     .WaitFor(kafka)
@@ -102,7 +105,8 @@ var apiGateway = builder.AddProjectFromRepository("api-gateway", gatewayRepo, "s
     .WithReference(orgAccessService)
     .WithReference(aiTriageService.GetEndpoint("http"))
     .WithReference(knowledgeService.GetEndpoint("http"))
-    .WithReference(billingService);
+    .WithReference(billingService)
+    .WithReference(notificationService);
 
 //React Frontend
 var frontendApp = builder.AddNpmAppFromRepository("frontend-web", frontendRepo, "src/Frontend", scriptName: "start")
