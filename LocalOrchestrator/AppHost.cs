@@ -2,14 +2,6 @@ using Dutchskull.Aspire.PolyRepo;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-//Infrastructure Dependencies and Services
-
-//Keycloak for identity and frontend application login
-var keycloak = builder.AddKeycloak("keycloak", 8080)
-    .WithDataVolume()
-    .WithEnvironment("KEYCLOAK_ADMIN", "admin")
-    .WithEnvironment("KEYCLOAK_ADMIN_PASSWORD", "admin");
-
 //MSSQL for Ticket Management and Organization Access
 var sqlServer = builder.AddSqlServer("sql-server");
 var ticketDb = sqlServer.AddDatabase("TicketDb");
@@ -22,6 +14,17 @@ var vectorDb = postgres.AddDatabase("VectorDb");
 
 //PostgreSQL for Notification Service
 var notificationDb = postgres.AddDatabase("NotificationDb");
+
+//Keycloak for identity and frontend application login
+var keycloak = builder.AddKeycloak("keycloak", 8080)
+    .WithImage("keycloak/keycloak", "26.6.1")
+    .WithDataVolume()
+    .WithEnvironment("KEYCLOAK_ADMIN", "admin")
+    .WithEnvironment("KEYCLOAK_ADMIN_PASSWORD", "admin")
+    .WithEnvironment("KC_DB", "dev-file")
+    .WithEnvironment("KC_HEALTH_ENABLED", "true")
+    .WithEnvironment("KC_METRICS_ENABLED", "true")
+    .WithBindMount("../../repos/auth-keycloak/import", "/opt/keycloak/data/import");
 
 //Kafka for backend service communication
 var kafka = builder.AddKafka("kafka")
@@ -56,13 +59,14 @@ var ticketManagementService = builder.AddProjectFromRepository("ticket-managemen
     .WaitFor(keycloak)
     .WithEnvironment("Authentication__Authority", $"{keycloakEndpoint}/realms/support-hub")
     .WithEnvironment("Authentication__Audience", "ticket-management-service");
-;
 
 var orgAccessService = builder.AddProjectFromRepository("organization-access", orgRepo, "src/OrganizationAccess/OrganizationAccess.csproj")
     .WithReference(orgDb)
     .WaitFor(orgDb)
     .WithReference(kafka)
     .WaitFor(kafka)
+    .WithReference(keycloak)
+    .WaitFor(keycloak)
     .WithEnvironment("Authentication__Authority", $"{keycloakEndpoint}/realms/support-hub")
     .WithEnvironment("Authentication__Audience", "organization-access-service");
 
@@ -73,6 +77,10 @@ var aiTriageService = builder.AddExecutable("ai-triage", "java", workingDirector
     .WaitFor(vectorDb)
     .WithReference(kafka)
     .WaitFor(kafka)
+    .WithReference(keycloak)
+    .WaitFor(keycloak)
+    .WithEnvironment("KEYCLOAK_AUTH_URL", $"{keycloakEndpoint}/realms/support-hub")
+    .WithEnvironment("KEYCLOAK_CLIENT_ID", "ai-triage-service")
     .WithEnvironment("OPENAI_API_KEY", builder.Configuration["OpenAIKey"]);
 
 var knowledgeService = builder.AddExecutable("knowledge-base", "java", workingDirectory: $"{clonePath}/service-knowledge", "-jar", "target/knowledge.jar")
@@ -80,7 +88,11 @@ var knowledgeService = builder.AddExecutable("knowledge-base", "java", workingDi
     .WithReference(vectorDb)
     .WaitFor(vectorDb)
     .WithReference(kafka)
-    .WaitFor(kafka);
+    .WaitFor(kafka)
+    .WithReference(keycloak)
+    .WaitFor(keycloak)
+    .WithEnvironment("KEYCLOAK_AUTH_URL", $"{keycloakEndpoint}/realms/support-hub")
+    .WithEnvironment("KEYCLOAK_CLIENT_ID", "ai-triage-service");
 
 //TypeScript / Node.js Services
 var billingService = builder.AddNpmAppFromRepository("billing-service", billingRepo, "src/Billing", scriptName: "dev")
@@ -106,14 +118,22 @@ var apiGateway = builder.AddProjectFromRepository("api-gateway", gatewayRepo, "s
     .WithReference(aiTriageService.GetEndpoint("http"))
     .WithReference(knowledgeService.GetEndpoint("http"))
     .WithReference(billingService)
-    .WithReference(notificationService);
+    .WithReference(notificationService)
+    .WithReference(keycloak)
+    .WaitFor(keycloak)
+    .WithEnvironment("Authentication__Authority", $"{keycloakEndpoint}/realms/support-hub")
+    .WithEnvironment("Authentication__Audience", "api-gateway")
+    .WithHttpEndpoint();
 
 //React Frontend
 var frontendApp = builder.AddNpmAppFromRepository("frontend-web", frontendRepo, "src/Frontend", scriptName: "start")
-    .WithReference(apiGateway.GetEndpoint("http"))
+    .WithReference(apiGateway)
     .WaitFor(apiGateway)
     .WithReference(keycloak)
     .WaitFor(keycloak)
+    .WithEnvironment("REACT_APP_KEYCLOAK_URL", $"http://localhost:8080")
+    .WithEnvironment("REACT_APP_KEYCLOAK_REALM", "support-hub")
+    .WithEnvironment("REACT_APP_KEYCLOAK_CLIENT_ID", "supporthub-frontend")
     .WithHttpEndpoint(port: 3000, env: "PORT");
 
 builder.Build().Run();
