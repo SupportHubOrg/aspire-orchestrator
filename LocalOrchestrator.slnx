@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="LocalOrchestrator.Tests/LocalOrchestrator.Tests.csproj" />
+  <Project Path="LocalOrchestrator/LocalOrchestrator.csproj" />
+</Solution>
